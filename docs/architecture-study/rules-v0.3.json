@@ -1,0 +1,638 @@
+{
+  "schemaVersion": "1.0",
+  "documentVersion": "0.3",
+  "date": "2026-10-29",
+  "projectRoot": "D:/four/graduation/project/easy-batch-master",
+  "baselineManifest": "baseline-sha256.csv",
+  "baselineManifestSha256": "8DC47B79717A3E4D10684397C5DA027AD58626386A1285F22BE1A3EC071BB56C",
+  "rules": [
+    {
+      "id": "EB-ARCH-001",
+      "name": "通用调度与格式适配保持职责边界",
+      "constraint": "对于只增加输入输出格式、不改变通用执行语义的需求，格式专用解析、序列化及驱动调用应封装于适配组件；不得仅为该格式让 BatchJob 或 JobBuilder 增加专用类型判断及解析分支。通用语义确需变化时可以修改 core；不要求每项功能新建模块。",
+      "category": "结构依赖／职责与扩展",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/BatchJob.java",
+          "line": 61,
+          "note": "实现：通过 RecordReader、RecordWriter、RecordProcessor 抽象协作。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/JobBuilder.java",
+          "line": 79,
+          "note": "实现：读取组件通过接口注册。"
+        },
+        {
+          "file": "easy-batch-json/pom.xml",
+          "line": 62,
+          "note": "依赖：JSON 适配模块依赖 core。此边界约束由实现推导，并非维护者明文禁止。"
+        }
+      ],
+      "compliantExample": "JSON 解析留在 JSON Reader 内，作业通过 reader(...) 使用。",
+      "violationExample": "在 BatchJob 内检测 NDJSON 类型并手写 JSON 解析。",
+      "status": "根据实现推断，待确认",
+      "review": {
+        "counterexampleOrBoundary": "NoOpRecordReader 是通用默认实现，不能据此禁止调度器创建一切 Reader。",
+        "verification": "依赖分析＋人工职责复核",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-002",
+      "name": "读取结束信号保持唯一含义",
+      "constraint": "适用于标准作业使用的 RecordReader：每次返回下一条 Record；只有逻辑数据源结束才返回 null。若需求允许跳过空行或注释，Reader 应继续寻找下一条记录，不得将跳过单条输入表达为返回 null。",
+      "category": "接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/reader/RecordReader.java",
+          "line": 48,
+          "note": "接口注释明确规定下一条记录或到达末尾时返回 null。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/BatchJob.java",
+          "line": 183,
+          "note": "实现：收到 null 后停止读取。"
+        },
+        {
+          "file": "easy-batch-flatfile/src/test/java/org/jeasy/batch/flatfile/FlatFileRecordReaderTest.java",
+          "line": 53,
+          "note": "测试：顺序读取后返回 null，另有空文件测试。"
+        }
+      ],
+      "compliantExample": "跳过获准忽略的空行后继续读取下一行，EOF 返回 null。",
+      "violationExample": "还有有效数据时，遇到空行就返回 null，截断整个作业。",
+      "status": "有明确文档依据",
+      "review": {
+        "counterexampleOrBoundary": "逻辑结束标记可由明确需求定义；不默认空行一定要被跳过。",
+        "verification": "EOF、空源及可跳过输入行为测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-003",
+      "name": "资源生命周期由标准作业入口驱动",
+      "constraint": "标准作业中的 Reader、Writer 必须支持 open→读取或写入→close 的调用方式。组件自己拥有的资源应在 close 中释放；调度变更须保留进入 try 后正常和异常路径的关闭尝试，不得只在 EOF 时清理。外部资源是否关闭应明确所有权；无资源组件可采用默认空实现。",
+      "category": "接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/reader/RecordReader.java",
+          "line": 38,
+          "note": "接口提供 open 和 close。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/writer/RecordWriter.java",
+          "line": 36,
+          "note": "接口提供 Writer 的 open 和 close。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/BatchJob.java",
+          "line": 104,
+          "note": "实现：open、循环和 finally 关闭。"
+        },
+        {
+          "file": "easy-batch-core/src/test/java/org/jeasy/batch/core/job/BatchJobTest.java",
+          "line": 157,
+          "note": "测试检查 Reader 关闭，后续测试覆盖打开失败后的关闭调用。资源所有权要求属推导。"
+        }
+      ],
+      "compliantExample": "文件 Reader 在 open 创建流，在 close 释放，由作业统一调用。",
+      "violationExample": "Reader 仅在读完文件时关闭流，读取抛异常就遗留资源。",
+      "status": "根据实现推断，待确认",
+      "review": {
+        "counterexampleOrBoundary": "不能扩大为任何异常都保证清理：start 在 try 外；部分实现对初始化失败不稳健。",
+        "verification": "正常/异常关闭与所有权测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "部分初始化失败的清理能力并不一致，JsonFileRecordReader.close 需进一步运行核实。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-004",
+      "name": "读取失败进入作业错误通道",
+      "constraint": "Reader 遇到未被需求明确允许恢复的读取错误时，必须向调用方抛出异常，交由读取异常通知和作业报告处理；不得以 null 或伪造记录将失败包装为成功。允许明确的重试或恢复策略，恢复失败仍须保留失败语义。",
+      "category": "接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/reader/RecordReader.java",
+          "line": 50,
+          "note": "接口明确 EOF 与读取异常两种情况。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/BatchJob.java",
+          "line": 198,
+          "note": "实现：通知 onRecordReadingException 后重抛。"
+        },
+        {
+          "file": "easy-batch-core/src/test/java/org/jeasy/batch/core/job/BatchJobTest.java",
+          "line": 289,
+          "note": "测试：无法读取下一条时作业失败。"
+        }
+      ],
+      "compliantExample": "I/O 异常直接抛出，作业报告 FAILED。",
+      "violationExample": "catch IOException 后返回 null，导致作业误报正常读完。",
+      "status": "有明确文档依据",
+      "review": {
+        "counterexampleOrBoundary": "有界重试可以恢复；不能把处理阶段的错误阈值套用为读取错误跳过策略。",
+        "verification": "读取异常通知与报告测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-005",
+      "name": "组件协作沿用 Record 与 Batch 数据模型",
+      "constraint": "接入现有作业流水线的输入和处理组件通过 Record<P> 交换单条数据，Writer 通过 Batch<P> 接收输出；新增格式不得仅为自身绕开公共模型建立并行调度数据通道。允许新增 Record 实现和 payload 类型，不要求统一使用字符串。",
+      "category": "结构依赖／接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/record/Record.java",
+          "line": 42,
+          "note": "接口规定 Header 与 payload 的访问入口。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/processor/RecordProcessor.java",
+          "line": 47,
+          "note": "接口规定 Record 输入输出。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/writer/RecordWriter.java",
+          "line": 51,
+          "note": "接口规定 Batch 输入。"
+        }
+      ],
+      "compliantExample": "新增记录类型实现 Record，业务对象放在 payload。",
+      "violationExample": "新格式另建 List<Map> 通道直接从 Reader 传给专用调度器，绕开标准流水线。",
+      "status": "有明确文档依据",
+      "review": {
+        "counterexampleOrBoundary": "独立于现有作业模型的执行机制需另行设计；不能机械禁止 payload 使用 Map。",
+        "verification": "类型分析＋标准流水线集成测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-006",
+      "name": "过滤结果只终止当前记录的后续处理",
+      "constraint": "Processor 返回 null 表示当前记录被过滤。CompositeRecordProcessor 及调度器应跳过该记录后续处理和写出，并继续读取后续记录；不得把处理阶段的 null 当成整个数据源结束。",
+      "category": "接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/processor/RecordProcessor.java",
+          "line": 29,
+          "note": "接口注释明确 null 的过滤及跳过后续处理语义。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/processor/CompositeRecordProcessor.java",
+          "line": 58,
+          "note": "实现：遇到 null 停止当前处理链。"
+        },
+        {
+          "file": "easy-batch-core/src/test/java/org/jeasy/batch/core/processor/CompositeRecordProcessorTest.java",
+          "line": 67,
+          "note": "测试：过滤后不调用后续 Processor。"
+        }
+      ],
+      "compliantExample": "第二个 Processor 过滤一条记录，第三个不处理它，下一条仍正常处理。",
+      "violationExample": "过滤后仍把 null 交给后续 Mapper，或者停止整个 Job。",
+      "status": "有明确文档依据",
+      "review": {
+        "counterexampleOrBoundary": "与读取 EOF 规则作用阶段不同；同一根因评分不重复计数。",
+        "verification": "过滤短路与后续记录测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-007",
+      "name": "可配置扩展组件满足对应接口类型",
+      "constraint": "承诺通过现有 JobBuilder 入口接入的 Reader、Processor、Filter、Mapper、Validator、Marshaller 和 Writer，必须是各入口形参要求接口的可赋值子类型。允许间接继承实现；纯辅助类无需实现这些接口，不按类名后缀判断角色。",
+      "category": "结构依赖",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/JobBuilder.java",
+          "line": 79,
+          "note": "API：reader 接受 RecordReader；91、103、115、127、139、151 行分别声明其他角色接口。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/reader/AbstractFileRecordReader.java",
+          "line": 35,
+          "note": "实现：文件 Reader 可经父类间接实现接口。"
+        }
+      ],
+      "compliantExample": "FlatFileRecordReader 继承 AbstractFileRecordReader，能够赋给 RecordReader。",
+      "violationExample": "声称可配置的 Reader 只定义同名方法，既未直接也未间接实现接口，另写入口才能调用。",
+      "status": "有明确文档依据",
+      "review": {
+        "counterexampleOrBoundary": "不能要求所有实现直接写 implements；教程及应用自定义实现也合法。",
+        "verification": "子类型分析＋编译",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-008",
+      "name": "处理流水线保持注册顺序与逐级传递",
+      "constraint": "使用 JobBuilder 注册处理组件时，Filter、Mapper、Validator、Marshaller、普通 Processor 应按注册顺序进入同一处理链；每个组件接收前一个组件的输出。新增处理功能不得在未改变通用 API 语义的情况下私自重排或改为全部接收原始输入。",
+      "category": "职责与扩展／接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/JobBuilder.java",
+          "line": 91,
+          "note": "实现：各角色都调用 addRecordProcessor；后续 mapper、validator 等采用一致方式。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/processor/CompositeRecordProcessor.java",
+          "line": 58,
+          "note": "实现：按列表顺序将 processedRecord 传给下一个组件。"
+        },
+        {
+          "file": "easy-batch-core/src/test/java/org/jeasy/batch/core/job/BatchJobTest.java",
+          "line": 139,
+          "note": "测试：每条记录按顺序调用处理组件，随后写出。"
+        }
+      ],
+      "compliantExample": "先将文本映射为对象，再由 Validator 检查对象。",
+      "violationExample": "为了优化而将 Validator 移到 Mapper 前，或让下游始终收到原始字符串。",
+      "status": "根据实现推断，待确认",
+      "review": {
+        "counterexampleOrBoundary": "用户显式配置的并行执行或新流水线语义需另立契约，不把当前顺序推广到所有执行模型。",
+        "verification": "顺序与数据传递测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-009",
+      "name": "Filter 保留通过记录的原始身份",
+      "constraint": "实现 RecordFilter 的组件应在通过时返回输入 Record，在拒绝时返回 null；不应借过滤角色替换记录或完成 payload 转换。需要转换时使用 Mapper 或一般 Processor。",
+      "category": "职责与扩展／接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/filter/RecordFilter.java",
+          "line": 35,
+          "note": "接口继承 RecordProcessor<R,R>；41 行注释要求通过时返回 input record。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/filter/EmptyStringRecordFilter.java",
+          "line": 37,
+          "note": "实现：不符合过滤条件时返回输入 record。"
+        }
+      ],
+      "compliantExample": "非空记录原样返回，空记录返回 null。",
+      "violationExample": "Filter 检查通过后返回另一个 GenericRecord 并顺便转换 payload。",
+      "status": "有明确文档依据",
+      "review": {
+        "counterexampleOrBoundary": "本规则限定 RecordFilter；一般 Processor 可以生成新记录。",
+        "verification": "Filter 身份及拒绝行为测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-010",
+      "name": "一对一表示转换保留记录来源信息",
+      "constraint": "仅改变同一逻辑记录表示形式的 Mapper、Marshaller，应保留输入 Header 所承载的来源与编号等身份信息，避免无故重建来源。拆分、聚合或生成新逻辑记录时可定义新的 Header，但须说明对应关系。",
+      "category": "职责与扩展",
+      "evidence": [
+        {
+          "file": "easy-batch-json/src/main/java/org/jeasy/batch/json/JsonRecordMapper.java",
+          "line": 70,
+          "note": "实现：新 GenericRecord 沿用 record.getHeader()。"
+        },
+        {
+          "file": "easy-batch-json/src/main/java/org/jeasy/batch/json/JsonRecordMarshaller.java",
+          "line": 62,
+          "note": "实现：序列化后的 JsonRecord 沿用输入 Header。"
+        },
+        {
+          "file": "easy-batch-json/src/test/java/org/jeasy/batch/json/JsonRecordMapperTest.java",
+          "line": 59,
+          "note": "testMapRecord 断言输出 Header 等于输入 Header。由实现及测试推导，不是所有 RecordProcessor 的统一契约。"
+        }
+      ],
+      "compliantExample": "JSON 字符串映射为对象时沿用原 Header。",
+      "violationExample": "单纯序列化对象时把编号重设为 1、来源改成未知。",
+      "status": "根据实现推断，待确认",
+      "review": {
+        "counterexampleOrBoundary": "不把一对一转换的 Header 保留约束扩展到拆分、聚合等改变逻辑记录身份的处理。",
+        "verification": "Header 保留测试＋拆分聚合人工判断",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-011",
+      "name": "校验与过滤保持错误语义区分",
+      "constraint": "对于要求将校验不通过记为处理错误的 Validator，应抛出异常进入处理错误通道；校验通过返回原记录。不得未经功能规格允许就返回 null，将错误改报为过滤。若明确采用无效记录过滤策略，应使用或说明过滤语义。",
+      "category": "职责与扩展／接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/validator/RecordValidator.java",
+          "line": 29,
+          "note": "接口：校验角色，类型保持 R→R；接口本身没有明文规定全部校验失败必须抛异常。"
+        },
+        {
+          "file": "easy-batch-validation/src/main/java/org/jeasy/batch/validation/BeanValidationRecordValidator.java",
+          "line": 56,
+          "note": "实现：有约束违反时抛异常，通过时返回原记录。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/processor/RecordProcessor.java",
+          "line": 31,
+          "note": "接口明确异常记错误、null 记过滤。该规则的适用条件据此限定。"
+        }
+      ],
+      "compliantExample": "Bean 校验失败抛异常，作业统计为处理错误。",
+      "violationExample": "需求要求记录校验错误，但 Validator 返回 null，错误数始终为零。",
+      "status": "根据实现推断，待确认",
+      "review": {
+        "counterexampleOrBoundary": "不能宣称所有 Validator 必须抛异常；任务若明确过滤无效数据，应采用其约定。",
+        "verification": "校验与过滤计数测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-012",
+      "name": "记录处理错误交由作业阈值统一决策",
+      "constraint": "对进入标准流水线、未被组件恢复的处理异常，调度器应沿用记录错误通知、错误计数、lastError 和 errorThreshold 的决策机制；组件不得自行结束整个进程或私改作业状态。保留当前超过阈值才终止的边界，除非需求明确修改通用错误策略。",
+      "category": "职责与扩展／接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/JobBuilder.java",
+          "line": 157,
+          "note": "API 文档说明阈值被超过后终止。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/BatchJob.java",
+          "line": 233,
+          "note": "实现：记录异常、增加计数、超过阈值时抛 ErrorThresholdExceededException。"
+        },
+        {
+          "file": "easy-batch-core/src/test/java/org/jeasy/batch/core/job/BatchJobTest.java",
+          "line": 337,
+          "note": "测试覆盖错误阈值。"
+        }
+      ],
+      "compliantExample": "Processor 抛异常；累计未超过阈值时作业按现有机制继续。",
+      "violationExample": "Processor 捕获业务异常后调用 System.exit，绕过作业报告和资源清理。",
+      "status": "有明确文档依据",
+      "review": {
+        "counterexampleOrBoundary": "读取和写入异常有各自路径，不能把本规则误当成所有异常均允许按阈值跳过。",
+        "verification": "阈值边界与报告测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-013",
+      "name": "Writer 复用作业的批量写出边界",
+      "constraint": "标准 Writer 接收作业传入的 Batch 并完成该批输出；批次积累及 batchSize 的通用调度留在作业层。Writer 可以内部逐条写或使用数据库批处理，但不得仅为适配一种输出源另行驱动作业读取或业务处理。",
+      "category": "职责与扩展／接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/writer/RecordWriter.java",
+          "line": 45,
+          "note": "接口规定写出一批记录。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/BatchJob.java",
+          "line": 180,
+          "note": "实现：作业组装处理后的 Batch。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/BatchJob.java",
+          "line": 246,
+          "note": "实现：非空批次交给 Writer。职责边界部分由调用关系推导。"
+        }
+      ],
+      "compliantExample": "Jdbc Writer 将接收到的一批记录绑定语句并批量提交。",
+      "violationExample": "Writer 自己打开输入文件、读取下一批并重新运行 Mapper，形成第二套流水线。",
+      "status": "根据实现推断，待确认",
+      "review": {
+        "counterexampleOrBoundary": "不禁止 Writer 的内部循环或缓冲；额外事务语义需由具体组件契约定义。",
+        "verification": "调用关系分析＋批写集成测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-014",
+      "name": "写出失败保留批次异常与扫描协作",
+      "constraint": "标准 Writer 在未成功完成约定写入且无法恢复时应抛出异常，交由作业触发写入异常通知，并按既有 batchScanning 配置决定扫描或失败。不得吞掉失败后正常返回，使整个 Batch 被计为成功。重试或扫描可能重复写入，不能由此宣称框架提供恰好一次语义。",
+      "category": "接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/writer/RecordWriter.java",
+          "line": 45,
+          "note": "接口明确写入异常。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/BatchJob.java",
+          "line": 246,
+          "note": "实现：成功后增加写出计数；异常时通知并依据扫描开关处理。"
+        },
+        {
+          "file": "easy-batch-core/src/test/java/org/jeasy/batch/core/job/BatchJobTest.java",
+          "line": 305,
+          "note": "测试：未启用恢复场景下写出失败使作业失败。"
+        },
+        {
+          "file": "easy-batch-core/src/test/java/org/jeasy/batch/core/job/BatchJobTest.java",
+          "line": 760,
+          "note": "测试：开启扫描后逐条重写。"
+        }
+      ],
+      "compliantExample": "数据库批写失败向上抛出，让作业采用配置的恢复路径。",
+      "violationExample": "Writer 只记录日志便返回，作业将失败批次计入 writeCount。",
+      "status": "有明确文档依据",
+      "review": {
+        "counterexampleOrBoundary": "部分成功时的事务与幂等处理属于适配器约定；不能自动认为扫描绝对安全。",
+        "verification": "写失败、扫描及部分成功测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-015",
+      "name": "扩展执行路径保持监听器通知协议",
+      "constraint": "修改标准作业的读取、处理、写出路径时，应保留对应监听器的执行前、正常完成及异常通知，并传递对应记录或批次；成功回调不能用于伪装失败。需要观察或获准的处理前干预时通过现有监听入口接入，不为单一扩展在调度器写死监听实现。",
+      "category": "职责与扩展／接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/BatchJob.java",
+          "line": 198,
+          "note": "实现：读取前后及异常通知。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/BatchJob.java",
+          "line": 219,
+          "note": "实现：PipelineListener 可返回待处理记录或 null，不仅是被动观察者。"
+        },
+        {
+          "file": "easy-batch-core/src/test/java/org/jeasy/batch/core/job/BatchJobTest.java",
+          "line": 500,
+          "note": "测试覆盖读取监听器；515 行覆盖读取异常通知。"
+        },
+        {
+          "file": "easy-batch-core/src/test/java/org/jeasy/batch/core/job/BatchJobTest.java",
+          "line": 566,
+          "note": "测试覆盖处理前后通知；548 行覆盖写出异常通知。"
+        }
+      ],
+      "compliantExample": "新读取路径仍通知 beforeRecordReading，再调用 Reader；失败通知 onRecordReadingException。",
+      "violationExample": "为加速新格式读取而绕过监听通知，或失败时仍通知 afterRecordWriting。",
+      "status": "根据实现推断，待确认",
+      "review": {
+        "counterexampleOrBoundary": "不能规定所有监听器均不得改变记录：PipelineListener 的处理前回调有明确干预能力。",
+        "verification": "监听事件顺序与异常测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-016",
+      "name": "重试通过组件包装保持原协作接口",
+      "constraint": "对现有 Reader、Processor 或 Writer 增加局部重试而不改变全局调度语义时，优先使用实现原接口的包装器及 RetryTemplate/RetryPolicy；重试最终失败须传播异常。Reader/Writer 包装器应转发生命周期，不得仅转发读写而遗漏资源关闭。不要求所有操作都重试。",
+      "category": "职责与扩展／接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/reader/RetryableRecordReader.java",
+          "line": 40,
+          "note": "实现：实现 Reader 接口并委托 open、readRecord、close。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/processor/RetryableRecordProcessor.java",
+          "line": 40,
+          "note": "实现：保持 Processor 接口并调用重试模板。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/retry/RetryTemplate.java",
+          "line": 59,
+          "note": "实现：按策略尝试，最后失败重抛异常。优先复用模板属于由一致实现推导的扩展约束。"
+        }
+      ],
+      "compliantExample": "给已有文件 Reader 套重试包装器，最终异常继续交给 Job。",
+      "violationExample": "为一个网络 Reader 在 BatchJob 写专用无限重试循环，包装器还丢失 close。",
+      "status": "根据实现推断，待确认",
+      "review": {
+        "counterexampleOrBoundary": "非幂等写出不应盲目重试；通用重试语义变化可以修改重试层。",
+        "verification": "重试次数、最终异常、生命周期测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-017",
+      "name": "对象字段类型转换通过转换器扩展点接入",
+      "constraint": "新增 ObjectMapper 支持的字段类型、且不改变通用映射语义时，应实现或复用 TypeConverter<String,T> 并通过已有注册机制接入；不得把字段类型转换特判放进 BatchJob，也不应仅为单个业务字段改写通用映射循环。通用转换算法确需修订时允许修改映射层。",
+      "category": "职责与扩展／结构依赖",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/converter/TypeConverter.java",
+          "line": 33,
+          "note": "接口定义源类型到目标类型的 convert。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/mapper/ObjectMapper.java",
+          "line": 115,
+          "note": "实现：从目标类型查找转换器。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/mapper/ObjectMapper.java",
+          "line": 167,
+          "note": "实现：调用转换器转换字段值。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/mapper/ObjectMapper.java",
+          "line": 211,
+          "note": "API 明确提供自定义字段转换器注册入口。扩展优先策略由该 API 和调用路径推导。"
+        }
+      ],
+      "compliantExample": "为新的值对象实现字符串转换器，注册给 ObjectMapper。",
+      "violationExample": "在 BatchJob 中判断某个业务字段是否为金额，再执行其类型转换。",
+      "status": "根据实现推断，待确认",
+      "review": {
+        "counterexampleOrBoundary": "不要求所有 JSON Mapper 使用此转换器；本规则仅限 ObjectMapper 的字段转换机制。",
+        "verification": "自定义转换器注册测试＋职责复核",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    },
+    {
+      "id": "EB-ARCH-018",
+      "name": "作业执行与作业实现通过 Job 契约解耦",
+      "constraint": "接入标准 JobExecutor 的作业必须满足 Job 接口并通过 call 返回 JobReport；执行器应依赖 Job 抽象，不能仅为新增格式或业务任务依赖 BatchJob 内部实现或复制其专用调用入口。调用方负责管理自身创建的执行器生命周期。",
+      "category": "结构依赖／接口与生命周期契约",
+      "evidence": [
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/Job.java",
+          "line": 33,
+          "note": "接口继承 Callable<JobReport>，48 行声明 call。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/JobExecutor.java",
+          "line": 83,
+          "note": "实现：execute 接受 Job，提交执行并等待报告。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/BatchJob.java",
+          "line": 54,
+          "note": "实现：包内可见的 BatchJob 实现 Job。"
+        },
+        {
+          "file": "easy-batch-core/src/main/java/org/jeasy/batch/core/job/JobExecutor.java",
+          "line": 128,
+          "note": "API 提供 shutdown 关闭执行器。依赖边界与调用方责任部分由接口及实现推导。"
+        }
+      ],
+      "compliantExample": "自定义 Job 实现 call 并返回报告，用 JobExecutor.execute(job) 启动。",
+      "violationExample": "为新业务让执行器强转为专用 BatchJob 子类，调用其格式专用执行方法。",
+      "status": "根据实现推断，待确认",
+      "review": {
+        "counterexampleOrBoundary": "不禁止用户实现新 Job；外部传入执行服务的所有权需核对实际约定，不能一律关闭共享线程池。",
+        "verification": "接口分析＋执行报告和关闭测试",
+        "verificationLimits": "本轮为源码与测试文本核查，未运行 Java 测试或全项目静态检查。自动命中仍需人工判断；基线通过情况未据此断言。",
+        "baselineFinding": "已核对所列证据，不代表全项目已完成符合性审计。",
+        "reviewer": null,
+        "reviewedAt": null
+      }
+    }
+  ]
+}
+

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- this is a comment-->
+<persons>
+    <person>
+        <id>1</id>
+        <firstName>foo</firstName>
+        <lastName>bar</lastName>
+        <birthDate>2000-01-01</birthDate>
+        <married>true</married>
+        <!-- this is a comment inside a record-->
+    </person>
+    <!-- this is a comment in between records-->
+    <person>
+        <id>2</id>
+        <firstName>bar</firstName>
+        <lastName>foo</lastName>
+        <birthDate>2014-01-01</birthDate>
+        <married>false</married>
+    </person>
+</persons>

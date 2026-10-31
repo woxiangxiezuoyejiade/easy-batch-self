@@ -1,0 +1,97 @@
+package org.jeasy.batch.tutorials.advanced.restart;
+
+import static java.lang.Long.parseLong;
+import static java.lang.String.valueOf;
+
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Properties;
+import org.jeasy.batch.core.job.JobReport;
+import org.jeasy.batch.core.job.JobStatus;
+import org.jeasy.batch.core.listener.JobListener;
+import org.jeasy.batch.core.listener.PipelineListener;
+import org.jeasy.batch.core.listener.RecordWriterListener;
+import org.jeasy.batch.core.record.Batch;
+import org.jeasy.batch.core.record.Record;
+import org.jeasy.batch.core.util.Utils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Listener that saves the number of the last successfully written record in a persistent store ( a file in this example ).
+ * If the job fails, restarting the job will skip all records that have been correctly processed and written in the previous run.
+ * 
+ * This listener should be registered as a {@link RecordWriterListener}, {@link PipelineListener} and {@link JobListener} at the same time.
+ * 
+ * @author Mahmoud Ben Hassine (mahmoud.benhassine@icloud.com)
+ */
+public class CheckPointListener implements RecordWriterListener<String>, PipelineListener, JobListener {
+
+    public static final String JOB_NAME_KEY = "job.name";
+    public static final String JOB_START_KEY = "job.start";
+    public static final String JOB_END_KEY = "job.end";
+    public static final String JOB_STATUS_KEY = "job.status";
+    public static final String WRITE_LAST_KEY = "write.last";
+    
+    private static final Logger LOGGER = LoggerFactory.getLogger(CheckPointListener.class.getName());
+
+    private long lastSuccessfullyWrittenRecordNumber;
+    
+    private Path journal;
+
+    public CheckPointListener(Path journal) {
+        this.journal = journal;
+        String lastStatus = readPropertyFromJournal(JOB_STATUS_KEY);
+        if(lastStatus != null && JobStatus.FAILED.equals(JobStatus.valueOf(lastStatus))) {
+            this.lastSuccessfullyWrittenRecordNumber = parseLong(readPropertyFromJournal(WRITE_LAST_KEY));
+            LOGGER.info("Last run has failed, records 1.." + lastSuccessfullyWrittenRecordNumber + " will be skipped");
+        }
+    }
+
+    @Override
+    public <P> Record<P> beforeRecordProcessing(Record<P> record) {
+        return record.getHeader().getNumber() <= lastSuccessfullyWrittenRecordNumber ? null : record;
+    }
+
+    @Override
+    public void afterRecordWriting(Batch<String> batch) {
+        Record<String> lastRecord = null;
+        for (Record<String> record : batch) {
+            lastRecord = record;
+        }
+        if (lastRecord != null) {
+            writePropertyToJournal(WRITE_LAST_KEY, valueOf(lastRecord.getHeader().getNumber()));
+        }
+    }
+
+    @Override
+    public void afterJob(JobReport jobReport) {
+        writePropertyToJournal(JOB_NAME_KEY, jobReport.getJobName());
+        writePropertyToJournal(JOB_START_KEY, Utils.formatTime(jobReport.getMetrics().getStartTime()));
+        writePropertyToJournal(JOB_END_KEY, Utils.formatTime(jobReport.getMetrics().getEndTime()));
+        writePropertyToJournal(JOB_STATUS_KEY, jobReport.getStatus().name());
+    }
+    
+    private void writePropertyToJournal(String key, String value) {
+        Properties properties = new Properties();
+        try {
+            properties.load(new FileReader(journal.toFile()));
+            properties.setProperty(key, value);
+            properties.store(new FileWriter(journal.toFile()), String.format("setting key '%s' to %s", key, value));
+        } catch (IOException e) {
+            LOGGER.error("Unable to write property {} in journal file", key, e);
+        }
+    }
+    
+    private String readPropertyFromJournal(String key) {
+        Properties properties = new Properties();
+        try {
+            properties.load(new FileReader(journal.toFile()));
+            return properties.getProperty(key);
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to read property " + key + " from journal file", e);
+        }
+    }
+}
