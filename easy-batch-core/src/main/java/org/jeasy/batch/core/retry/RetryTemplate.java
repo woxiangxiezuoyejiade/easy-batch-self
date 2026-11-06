@@ -24,7 +24,6 @@
 package org.jeasy.batch.core.retry;
 
 import java.util.concurrent.Callable;
-import java.util.concurrent.TimeUnit;
 
 import static java.lang.Thread.sleep;
 
@@ -52,13 +51,12 @@ public abstract class RetryTemplate {
      * @param callable to execute
      * @param <T> the return type of the callable
      * @return the result of the callable
-     * @throws Exception if the callable still throw an exception after all retries
+     * @throws Exception if a failure cannot be retried, attempts are exhausted, or waiting is interrupted
      */
     public <T> T execute(final Callable<T> callable) throws Exception {
         int attempts = 0;
-        int maxAttempts = retryPolicy.getMaxAttempts();
-        long delay = retryPolicy.getDelay();
-        TimeUnit timeUnit = retryPolicy.getTimeUnit();
+        RetryPolicy policy = retryPolicy;
+        int maxAttempts = policy.getMaxAttempts();
         while(attempts < maxAttempts) {
             try {
                 attempts++;
@@ -72,8 +70,11 @@ public abstract class RetryTemplate {
                     onMaxAttempts(e);
                     throw e;
                 }
+                if (!policy.isRetryable(e)) {
+                    throw e;
+                }
                 beforeWait();
-                sleep(timeUnit.toMillis(delay));
+                sleep(policy.delayMillis(attempts));
                 afterWait();
             }
         }

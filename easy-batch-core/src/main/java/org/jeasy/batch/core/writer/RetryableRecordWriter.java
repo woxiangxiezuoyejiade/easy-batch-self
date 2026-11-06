@@ -117,7 +117,7 @@ public class RetryableRecordWriter<P> implements RecordWriter<P> {
 
         @Override
         protected void beforeWait() {
-            LOGGER.debug("Waiting for {} {} before retrying to write records", retryPolicy.getDelay(), retryPolicy.getTimeUnit());
+            LOGGER.debug("Waiting before retrying to write records");
         }
 
         @Override

@@ -107,7 +107,7 @@ public class RetryableRecordProcessor<I, O> implements RecordProcessor<I, O> {
 
         @Override
         protected void beforeWait() {
-            LOGGER.debug("Waiting for {} {} before retrying to process record", retryPolicy.getDelay(), retryPolicy.getTimeUnit());
+            LOGGER.debug("Waiting before retrying to process record");
         }
 
         @Override
